@@ -146,7 +146,7 @@ export class Model {
             // check for validity of value based on 'optional' provided.
             let valid = true;
             args.forEach((arg, index) => {
-                if (isUndefined(arg) && list[index][3] != OPTIONAL) {
+                if (list[index][3] != OPTIONAL && isUndefined(arg)) {
                     valid = false;
                     return false;
                 }
