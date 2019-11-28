@@ -1,8 +1,7 @@
-import get from "lodash/get";
-import set from "lodash/set";
 import isUndefined from "lodash/isUndefined";
 import isString from "lodash/isString";
 import isArray from "lodash/isArray";
+import { BaseModel } from "./BaseModel";
 
 let watchInt = 0;
 
@@ -11,88 +10,210 @@ export const INJECT = 'inject'
 export const CHANGE = 'change'
 export const OPTIONAL = 'optional'
 
-export class Model {
+export class Model extends BaseModel {
+
+    onDestroyCallbacks = []
+    queuedPaths = []
 
     constructor() {
-        this.state = {};
-        this._watchById = {};
-        this._watchesByPath = {};
-        this.onDestroyCallbacks = [];
+        super();
     }
 
-    get(path) {
+    async get(path) {
+
         if (path) {
-            return get(this.state, path);
-        } else {
-            return this.state;
+            return await super.get(path);
         }
+
+        throw "get requires a path";
     }
 
     set(path, value) {
-        if (arguments.length == 1) {
-            value = path;
-            path = '';
-            this.state = value;
-        } else {
-            set(this.state, path, value);
+
+        if (!isUndefined(path) && !isUndefined(value)) {
+            super.set(path, value);
+            this.queuePath(path);
         }
-        this.trigger(path);
+
+        throw "set requires path and value";
     }
 
-    trigger(path) {
-        let paths = Object.keys(this._watchesByPath)
-            .filter((wp) => !wp || path == wp || path.startsWith(wp + '.') || wp.startsWith(path + '.'));
-        let watches = paths.reduce((watches, path) => watches.concat(this._watchesByPath[path]), []);
-        watches.forEach((watchId) => {
-            let watch = this._watchById[watchId];
+    queuePath(path, isSingle) {
+        // get all paths
+        let allPaths = Object.keys(this.watchesByPath);
+        // get matching parents and children
+        let matchedPaths = allPaths.filter((wp) => !wp || path == wp || path.startsWith(wp + '.') || wp.startsWith(path + '.'));
+        // get all watchIds
+        let watches = matchedPaths.flatMap(mp => this.watchesByPath[mp]);
+
+        // filtering for watches with unique callbacks
+        let uniqueWatches = watches.filter(wid =>
+            !this.queuedWatches.find(qwid => this.watchById[qwid].callback === this.watchById[wid].callback))
+
+        this.queuedWatches = this.queuedWatches.concat(uniqueWatches)
+
+        this.processQueue();
+    }
+
+    processQueue() {
+        if (!this.isSuspended && this.queuedWatches.length > 0) {
+
+            this.suspend();
+
+            let watchId = this.queuedWatches[0];
+            let watch = this.watchById[watchId];
             if (watch) {
                 watch.callback(watch.model.get(watch.path));
             }
-        })
+
+            this.queuedWatches.shift();
+
+            this.resume();
+
+        }
     }
 
-    watch(model, path, callback, skipImmediateTrigger) {
+    suspend() {
+        this.isSuspended = true;
+    }
+
+    resume() {
+        this.isSuspended = false;
+        this.processQueue();
+    }
+
+    watch(model, path, callback) {
         if (arguments.length == 2) {
             callback = path;
             path = model;
             model = this;
         }
 
-        let watchId = 'watch' + watchInt++;
-        let watches = model._watchesByPath[path] || (model._watchesByPath[path] = []);
-        watches.push(watchId);
-        model._watchById[watchId] = { watchId, model, path, callback };
-
-        let val;
-        if (!skipImmediateTrigger && !isUndefined(val = model.get(path))) {
-            callback(val);
-        }
-
-        if (model != this) {
-            this.onDestroyCallbacks.push(() => model.unwatch(watchId));
+        let watchId;
+        if (model === this) {
+            watchId = super.watch(path, callback)
+            this.queuedWatches.push(watchId);
+            this.processQueue();
+        } else {
+            watchId = model.watch(path, callback)
+            this.onDestroyCallbacks.push(() => model.unwatch(watchId))
         }
 
         return watchId;
     }
 
     unwatch(watchId) {
-        let watch = this._watchById[watchId];
-        this._watchesByPath[watch.path] = this._watchesByPath[watch.path].filter(id => id != watchId);
-        delete this._watchById[watchId]
+        super.unwatch(watchId);
     }
 
     destroy() {
         this.onDestroyCallbacks.forEach(callback => callback && callback());
-        this._watchById = {};
-        this._watchesByPath = {};
-        this.state = {};
+        super.destroy();
     }
 
-    inject(paths, callback) {
-        callback.apply(this, paths.map(path => this.get(path)));
+    getInjectedCallback(pathSets, callback) {
+        let models = [];
+        let correctedPathSets = pathSets.map(set => {
+            if (isString(set)) {
+                return [WATCH, this, set, '']
+            } else if (isArray(set)) {
+                let temp = [...set];
+                let res = [];
+                let prop;
+
+                prop = temp.shift()
+                if (prop === WATCH || prop === CHANGE || prop === INJECT) {
+                    res.push(prop);
+                    prop = temp.shift()
+                } else {
+                    res.push(WATCH);
+                }
+
+                if (prop === this || prop instanceof Model) {
+                    res.push(prop);
+                    prop = temp.shift();
+                } else {
+                    res.push(this);
+                }
+
+                let model = res[res.length - 1];
+                if (!models.find(m => m === model)) {
+                    models.push(model);
+                }
+
+                if (isString(prop) && prop !== OPTIONAL) {
+                    res.push(prop);
+                    prop = temp.shift();
+                } else {
+                    throw "unexpected path set";
+                }
+
+                res.push(prop);
+            }
+        });
+
+        let self = this;
+
+        return {
+            models,
+            pathSets: correctedPathSets,
+            callback: async function () {
+                let args = [];
+                for (let set in correctedPathSets) {
+                    let val = await self.get(set[2])
+                    if (isUndefined(val) && set[3] !== OPTIONAL) {
+                        return;
+                    }
+                    args.push(val);
+                }
+                return callback.apply(self, args.concat(arguments));
+            }
+        }
     }
 
-    change(model, path, callback, skipImmediateTrigger) {
+    // [[type:'watch|change|inject',] [model,] path, [isOptional]]
+    compose(pathSets, callback) {
+        let injectedSet = this.getInjectedCallback(pathSets, callback);
+
+        injectedSet.models.forEach(m => m.suspend());
+
+        let finalCallback = injectedSet.callback;
+        // debounce callback because there can be trigger of same callback from multiple models
+        if (injectedSet.models > 1) {
+            let timeout;
+            finalCallback = () => {
+                if (timeout) clearTimeout(timeout)
+                timeout = setTimeout(injectedSet.callback);
+            }
+            this.onDestroyCallbacks.push(() => timeout && clearTimeout(timeout));
+        }
+
+        let watchIds = injectedSet.pathSets.map(set => {
+            if (set[0] === WATCH) {
+                return this.watch(set[1], set[2], finalCallback);
+            } else if (set[0] === CHANGE) {
+                return this.change(set[1], set[2], finalCallback);
+            }
+        })
+
+        injectedSet.models.forEach(m => m.resume());
+
+        return watchIds;
+    }
+
+    inject(paths, callback, targetPath) {
+        // callback.apply(this, paths.map(path => this.get(path)));
+        let injectedCallback = this.getInjectedCallback(paths, callback).callback;
+
+        if (targetPath && isString(targetPath)) {
+            this[targetPath] = injectedCallback;
+        }
+
+        return injectedCallback;
+    }
+
+    change(model, path, callback) {
+
         if (arguments.length == 2) {
             callback = path;
             path = model;
@@ -100,74 +221,12 @@ export class Model {
         }
 
         let prevVal = model.get(path);
-        this.watch(model, path, (currentVal) => {
+
+        return this.watch(model, path, (currentVal) => {
             if (currentVal != prevVal) {
                 callback(currentVal, prevVal);
                 prevVal = currentVal;
             }
-        }, skipImmediateTrigger)
-    }
-
-    // [[type:'watch|change|inject',] [model,] path, [isOptional]]
-    compose(list, callback) {
-        // adjusting optional parameters
-        list = list.map(arr => {
-            if (isString(arr)) {
-                return [WATCH, this, arr, false];
-            } else if (isArray(arr)) {
-                let res = [];
-
-                if (arr[0] == WATCH || arr[0] == INJECT || arr[0] == CHANGE) {
-                    res.push[arr[0]];
-                    arr.unshift(arr);
-                } else {
-                    res.push(WATCH);
-                }
-
-                if (isString(arr[0])) {
-                    res.push(this);
-                    res.push(arr[0]);
-                    res.push(arr[1]);
-                } else {
-                    res.push(arr[0]);
-                    res.push(arr[1]);
-                    res.push(arr[2]);
-                }
-
-                return res;
-            }
-        })
-
-        // making injected callback
-        let injectedCallback = () => {
-            // get all argument values
-            let args = list.map(arr => arr[1].get(arr[2]));
-
-            // check for validity of value based on 'optional' provided.
-            let valid = true;
-            args.forEach((arg, index) => {
-                if (list[index][3] != OPTIONAL && isUndefined(arg)) {
-                    valid = false;
-                    return false;
-                }
-            })
-
-            if (valid) {
-                // call the callback when all argument values are valid.
-                callback.apply(this, args);
-            }
-        }
-
-        // register all watch and change events
-        list.forEach(arr => {
-            if (arr[0] == WATCH) {
-                this.watch(arr[1], arr[2], injectedCallback, true);
-            } else if (arr[0] == CHANGE) {
-                this.change(arr[1], arr[2], injectedCallback, true);
-            }
         });
-
-        // trigger immediate so that if all data is ready, callback can be called.
-        injectedCallback();
     }
 }
