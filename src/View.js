@@ -2,6 +2,38 @@
 import { Model } from "./Model";
 
 let binders = {};
+let binderInfosByElement = new WeakMap();
+
+function initializeBinders(context, rootElement) {
+    let attributes = Object.keys(binders);
+    let selector = '[' + attributes.join('], [') + ']';
+    let elementsThatNeedBinding = [];
+    if (rootElement.matches(selector)) {
+        elementsThatNeedBinding.push(rootElement);
+    }
+    elementsThatNeedBinding = elementsThatNeedBinding.concat(rootElement.querySelectorAll(selector));
+
+    attributes.forEach(attr => {
+        elementsThatNeedBinding.forEach(el => {
+            if (el.hasAttribute(attr)) {
+                let attributeBinders = binders[attr];
+                attributeBinders.forEach((binder, index) => {
+                    let infos = binderInfosByElement.get(el) || [];
+                    let binderInfo = { binder, index, context };
+                    if (!infos.find(info =>
+                        info.binder == binderInfo.binder &&
+                        info.index == binderInfo.index &&
+                        info.context == binderInfo.context)) {
+
+                        binderInfo.unbind = binder.callback.call(context, el.getAttribute(attr), el);
+                        infos.push(binderInfo);
+                        binderInfosByElement.set(el, infos);
+                    }
+                });
+            }
+        })
+    })
+}
 
 export class View extends Model {
 
@@ -10,32 +42,21 @@ export class View extends Model {
         attributeBinders.push(callback);
     }
 
-    constructor() {
+    constructor(elements) {
         super();
-        if (this.element) {
-            this.initializeBinders(this.element);
+        elements = elements || this.elements;
+
+        if (isString(elements)) {
+            let div = document.createElement('div');
+            div.innerHTML = elements;
+            elements = Array.from(div.children);
+        }
+
+        if (elements) {
+            elements.forEach(el => this.initializeBinders(el));
         }
     }
 
-    initializeBinders(rootElement) {
-        let attributes = Object.keys(binders);
-        let selector = '[' + attributes.join('], [') + ']';
-        let elementsThatNeedBinding = [];
-        if (rootElement.matches(selector)) {
-            elementsThatNeedBinding.push(rootElement);
-        }
-        elementsThatNeedBinding = elementsThatNeedBinding.concat(rootElement.querySelectorAll(selector));
-
-        attributes.forEach(attr => {
-            elementsThatNeedBinding.forEach(el => {
-                if (el.hasAttribute(attr)) {
-                    let attributeBinders = binders[attr];
-                    attributeBinders.forEach(binder =>
-                        binder.callback.call(this, el.getAttribute(attr), el));
-                }
-            })
-        })
-    }
 }
 
 /// this binder sets the element instance to the property provided
@@ -87,7 +108,7 @@ View.addBinder('bind-show', function (prop, element) {
 View.addBinder('bind-child-elements', function (prop, element) {
     let prevElements = [];
     this.watch(prop, (elements) => {
-        
+
         elements.forEach(el => element.appendChild(el));
 
         prevElements

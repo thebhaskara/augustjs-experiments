@@ -1,4 +1,10 @@
-import { Model } from "./src/Model";
-import { View } from "./src/View";
+import "./dist/August.js";
 
-export { Model, View };
+class Abc extends August.Model {
+    constructor() { super() }
+}
+
+let a = new Abc();
+a.watch('aa', (aa) => console.log(aa));
+
+a.set('aa', 10);
