@@ -17,9 +17,8 @@ import { WATCH, CHANGE } from './helpers/constants';
 
 export class Model {
 
-    onDestroyCallbacks = []
-
     constructor() {
+        this.onDestroyCallbacks = [];
         initGetSet(this);
     }
 

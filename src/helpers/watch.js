@@ -40,6 +40,7 @@ export function processQueue(context) {
         // suspend(context);
         let watch = queue[0];
         watch.callback(context.get(watch.path));
+        queue.shift();
         // resume(context);
         processQueue();
     }
