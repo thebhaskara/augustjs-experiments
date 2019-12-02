@@ -1,4 +1,4 @@
-import { expect, assert } from 'chai';
+import { expect } from 'chai';
 import { Model } from '../src/Model';
 
 describe('Model', function () {
@@ -6,7 +6,7 @@ describe('Model', function () {
     describe('instance', function () {
 
         it('Should create instance', function () {
-            let model = new Model();
+            new Model();
         });
 
         it('Should be Model instance', function () {
