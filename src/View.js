@@ -1,64 +1,47 @@
 
 import { Model } from "./Model";
 import isString from "lodash/isString";
+import isArray from "lodash/isArray";
 import throttle from "lodash/throttle";
-
-let binders = {};
-let binderInfosByElement = new WeakMap();
-
-function initializeBinders(context, rootElement) {
-    let attributes = Object.keys(binders);
-    let selector = '[' + attributes.join('], [') + ']';
-    let elementsThatNeedBinding = [];
-    if (rootElement.matches(selector)) {
-        elementsThatNeedBinding.push(rootElement);
-    }
-    elementsThatNeedBinding = elementsThatNeedBinding.concat(Array.from(rootElement.querySelectorAll(selector)));
-
-    attributes.forEach(attribute => {
-        elementsThatNeedBinding.forEach(el => {
-            if (el.hasAttribute(attribute)) {
-                let attributeBinders = binders[attribute];
-                attributeBinders.forEach((binder, index) => {
-                    let infos = binderInfosByElement.get(el) || [];
-                    let binderInfo = { attribute, index, context };
-                    if (!infos.find(info =>
-                        info.attribute == binderInfo.attribute &&
-                        info.index == binderInfo.index &&
-                        info.context == binderInfo.context)) {
-                        binderInfo.unbind = binder.call(context, el.getAttribute(attribute), el);
-                        context.onDestroyCallbacks.push(binderInfo.unbind);
-                        infos.push(binderInfo);
-                        binderInfosByElement.set(el, infos);
-                    }
-                });
-            }
-        })
-    })
-}
+import { addBinder, initializeBinders } from "./helpers/binder";
 
 export class View extends Model {
 
     static addBinder(attribute, callback) {
-        let attributeBinders = binders[attribute] || (binders[attribute] = []);
-        attributeBinders.push(callback);
+        return addBinder(attribute, callback);
     }
 
     constructor(elements) {
         super();
-        elements = elements || this.elements;
-
-        if (isString(elements)) {
-            let div = document.createElement('div');
-            div.innerHTML = elements;
-            elements = Array.from(div.children);
-        }
-
-        if (elements) {
-            elements.forEach(el => initializeBinders(this, el));
+        this.elements = elements || this.elements;
+        if (this.elements == 'body') {
+            this.render();
         }
     }
 
+    render() {
+        let elements = this.elements;
+
+        if (isString(elements) && document && document.body) {
+            if (elements == 'body') {
+                elements = [document.body];
+            } else {
+                let div = document.createElement('div');
+                div.innerHTML = elements;
+                elements = Array.from(div.children);
+            }
+        }
+
+        if (isArray(elements)) {
+            let ubs = elements.reduce((unbinders, el) => {
+                let ubs = initializeBinders(this, el);
+                return [...unbinders, ...ubs];
+            }, []);
+            this.onDestroyCallbacks = [...this.onDestroyCallbacks, ...ubs];
+        }
+
+        this.set('_internal.rendered', true);
+    }
 }
 
 /// this binder sets the element instance to the property provided
@@ -184,3 +167,64 @@ View.addBinder('bind-value', function (path, el) {
     });
 
 });
+
+/// this binder sets the element instance to the property provided
+View.addBinder('bind-component', function (prop, element) {
+
+    let prevComponent;
+    let watchId = this.watch(prop, (component) => {
+
+        if (!component) {
+            while (element.firstChild) {
+                element.removeChild(element.firstChild);
+            }
+            return;
+        } else if (component == prevComponent) {
+            return;
+        }
+
+        if (!component.get('_internal.rendered')) {
+            component.render();
+        }
+
+        component.elements.forEach(el => element.appendChild(el));
+
+        prevComponent = component;
+    });
+
+    return () => this.unwatch(watchId);
+})
+
+/// this binder sets the element instance to the property provided
+View.addBinder('bind-components', function (prop, element) {
+    let prevComponents = [];
+    let watchId = this.watch(prop, (components) => {
+
+        if (!components) {
+            while (element.firstChild) {
+                element.removeChild(element.firstChild);
+            }
+            return;
+        }
+
+        components.forEach(component => {
+            if (!component.get('_internal.rendered')) {
+                component.render();
+            }
+
+            component.elements.forEach(el => element.appendChild(el));
+            prevComponents = prevComponents.filter(c => component != c);
+        });
+
+        // remove remaining components
+        prevComponents.forEach(comp => {
+            comp.elements.forEach(el => {
+                element.removeChild(el);
+            })
+        });
+
+        prevComponents = components;
+    });
+
+    return () => this.unwatch(watchId);
+})
