@@ -1,7 +1,8 @@
+import { dom } from './dom';
 
 
 let binders = {};
-let binderInfosByElement = new WeakMap();
+let unbindCallbacksByElement = new WeakMap();
 let selector = '';
 
 export function addBinder(attribute, callback) {
@@ -11,47 +12,39 @@ export function addBinder(attribute, callback) {
     attributeBinders.push(callback);
 }
 
-export function initializeBinders(context, rootElement) {
-    // let attributes = Object.keys(binders);
-    // let selector = '[' + attributes.join('], [') + ']';
-    let elementsThatNeedBinding = [];
-    if (rootElement.matches(selector)) {
-        elementsThatNeedBinding.push(rootElement);
-    }
-    elementsThatNeedBinding = elementsThatNeedBinding.concat(Array.from(rootElement.querySelectorAll(selector)));
+export function bind(context, rootElement) {
 
-    let unbindCalls = [];
-    attributes.forEach(attribute => {
+    let $root = new dom(rootElement);
 
-        elementsThatNeedBinding.forEach(el => {
+    let matchingElements = [];
 
-            if (el.hasAttribute(attribute)) {
+    $root.matches(selector) && matchingElements.push(rootElement);
+    Array.prototype.push.apply(matchingElements, $root.getElements(selector));
 
-                let attributeBinders = binders[attribute];
-                attributeBinders.reduce((unbindCalls, binder, index) => {
+    matchingElements.forEach(element => {
 
-                    let infos = binderInfosByElement.get(el) || [];
-                    let binderInfo = { attribute, index, context };
+        unbind([element]);
 
-                    if (!infos.find(info =>
-                        info.attribute == binderInfo.attribute &&
-                        info.index == binderInfo.index &&
-                        info.context == binderInfo.context)) {
+        let unbindCallbacks = [];
 
-                        binderInfo.unbind = binder.call(context, el.getAttribute(attribute), el);
-                        // context.onDestroyCallbacks.push(binderInfo.unbind);
-                        infos.push(binderInfo);
-                        binderInfosByElement.set(el, infos);
-                        
-                        unbindCalls.push(binderInfo.unbind);
-
-                    }
-
-                    return unbindCalls;
-                }, unbindCalls);
+        Array.from(element.attributes).forEach(attr => {
+            let binderCallbacks = binders[attr.name];
+            if (binderCallbacks) {
+                let calls = binderCallbacks.map(callback => callback.call(context, attr.value, element));
+                Array.prototype.push.apply(unbindCallbacks, calls);
             }
-        })
-    })
+        });
 
-    return unbindCalls;
+        unbindCallbacksByElement.set(element, unbindCallbacks);
+    });
+
+    return matchingElements;
+}
+
+export function unbind(elements) {
+    elements.forEach(el => {
+        let cbs = unbindCallbacksByElement.get(el);
+        cbs && cbs.forEach(cb => cb && cb());
+        unbindCallbacksByElement.delete(el);
+    });
 }

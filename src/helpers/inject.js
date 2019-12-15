@@ -1,4 +1,7 @@
 import { WATCH, CHANGE, INJECT, OPTIONAL } from './constants';
+import isString from 'lodash/isString';
+import isArray from 'lodash/isArray';
+import isUndefined from 'lodash/isUndefined';
 
 
 export function formatCallback(context, pathSets, callback, Model) {
@@ -6,6 +9,8 @@ export function formatCallback(context, pathSets, callback, Model) {
     let models = [];
     let correctedPathSets = pathSets.map(set => {
         if (isString(set)) {
+            watchedModels.push(context);
+            models.push(context);
             return [WATCH, context, set, '']
         } else if (isArray(set)) {
             let temp = [...set];
@@ -44,6 +49,7 @@ export function formatCallback(context, pathSets, callback, Model) {
             }
 
             res.push(prop);
+            return res;
         }
     });
 
@@ -53,7 +59,7 @@ export function formatCallback(context, pathSets, callback, Model) {
         pathSets: correctedPathSets,
         injectedCallback() {
             let args = [];
-            for (let set in correctedPathSets) {
+            for (let set of correctedPathSets) {
                 let val = context.get(set[2])
                 if (isUndefined(val) && set[3] !== OPTIONAL) {
                     return;

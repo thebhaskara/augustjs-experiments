@@ -128,4 +128,28 @@ export class Model {
             }
         });
     }
+
+    static compose(SourceModel) {
+        class DestinationModel extends SourceModel { }
+
+        let sourcePrototype = SourceModel.prototype;
+        let destinationPrototype = DestinationModel.prototype;
+
+        Object.keys(sourcePrototype).forEach(prop => {
+            let propertyValue = sourcePrototype[prop];
+            if (isArray(propertyValue)) {
+                let pathSets = [...propertyValue];
+                let callback = pathSets.pop();
+                if (isFunction(callback)) {
+                    destinationPrototype[prop] = function () {
+                        this.compose(pathSets, callback);
+                        this.inject(pathSets, prop);
+                        return destinationPrototype[prop]()
+                    }
+                }
+            }
+        })
+
+        return DestinationModel;
+    }
 }
