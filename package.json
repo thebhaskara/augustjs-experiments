@@ -2,7 +2,7 @@
   "name": "augustjs",
   "version": "1.0.0",
   "description": "A simple model structure",
-  "main": "dist/index.js",
+  "main": "dist/August.js",
   "scripts": {
     "test": "mocha --require @babel/register",
     "start": "webpack-dev-server --open",
