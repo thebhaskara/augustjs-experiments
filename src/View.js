@@ -1,31 +1,122 @@
+import { Model } from "./Model.js";
+import { CompositeKeyWeakMap } from "./helpers/CompositeKeyWeakMap.js";
 
-import { Model } from "./Model";
-import isString from "lodash/isString";
-import isArray from "lodash/isArray";
-import throttle from "lodash/throttle";
-import { addBinder, bind, unbind } from './helpers/binder';
-import { CompositeKeyWeakMap } from './helpers/CompositeKeyWeakMap';
-import { RENDERED_PATH } from './helpers/constants';
+const importedContentByUrl = new Map();
+
+const importContent = async url => {
+    let content = importedContentByUrl.get(url);
+    if (!content) {
+        let res = await fetch(url);
+        if (res.status < 400) {
+            content = await res.text();
+            importedContentByUrl.set(url, content);
+        }
+    }
+    return content;
+};
+
+const binderByAttribute = new Map();
+let binderSelector = "";
+let bindersList = "";
 
 export class View extends Model {
+    constructor() {
+        super();
+        this.elementDestroyCallbacks = [];
+        this.destroyCallbacks.push(() => {
+            this.elementDestroyCallbacks && this.elementDestroyCallbacks.forEach(callback => callback && callback());
+        });
+    }
 
-    static addBinder(attribute, callback) {
-        return addBinder(attribute, callback);
+    async render() {
+        if (this.$$renderLock) {
+            return await this.$$renderLock;
+        } else {
+            this.$$renderLock = new Promise(res => {
+                let watchID = this.watch("rendered", () => {
+                    res(this.elements);
+                    this.unwatch(watchID);
+                });
+            });
+        }
+
+        let { tagName, html, htmlUrl, elements, name, css, cssUrl, styleElement } = this;
+
+        if (!elements) {
+            if (html) {
+            } else if (htmlUrl) {
+                html = await importContent(htmlUrl);
+            }
+
+            let element = document.createElement(tagName || "div");
+            element.innerHTML = html;
+
+            View.attachBinders(this, element);
+
+            elements = this.elements = Array.from(element.children);
+            elements.forEach(el => el.classList.add(name));
+        }
+
+        if (!styleElement) {
+            if (css) {
+            } else if (cssUrl) {
+                css = await importContent(cssUrl);
+            }
+
+            if (css) {
+                styleElement = this.styleElement = document.createElement("style");
+                // styleElement.id = `august-style-${name}`;
+                styleElement.innerHTML = css;
+                element.appendChild(styleElement);
+            }
+        }
+
+        this.rendered = true;
+
+        return elements;
+    }
+
+    static addBinder(tagName, callback) {
+        binderByAttribute.set(tagName, callback);
+        // console.log("View -> addBinder -> binderByAttribute", binderByAttribute);
+        bindersList = Array.from(binderByAttribute.keys());
+        binderSelector = `[${bindersList.join("],[")}]`;
+    }
+
+    static attachBinders(context, baseElement) {
+        let elementsToBeBound = Array.from(baseElement.querySelectorAll(binderSelector));
+        let elementDestroyCallbacks = context.elementDestroyCallbacks;
+        if (elementDestroyCallbacks) {
+            elementDestroyCallbacks.forEach(callback => callback && callback());
+        }
+        elementDestroyCallbacks = context.elementDestroyCallbacks = [];
+        bindersList.forEach(attributeName => {
+            elementsToBeBound.forEach(el => {
+                if (el.hasAttribute(attributeName)) {
+                    let prop = el.getAttribute(attributeName);
+                    let callback = binderByAttribute.get(attributeName);
+                    elementDestroyCallbacks.push(callback.call(context, prop, el));
+                }
+            });
+        });
     }
 
     static addAggregatedEventListener(eventName, element, cb) {
-
         let callbacks = callbacksByEventElement.get([element, eventName]);
 
         if (!callbacks) {
             document.addEventListener(eventName, ev => {
-                let tgt = ev.target;
-                while (tgt) {
+                // let tgt = ev.target;
+                // while (tgt) {
+                //     let callbacks = callbacksByEventElement.get([tgt, eventName]);
+                //     callbacks && callbacks.forEach(cb => cb && cb(ev));
+                //     tgt = tgt.parentElement;
+                // }
+                Array.from(ev.path).forEach(tgt => {
                     let callbacks = callbacksByEventElement.get([tgt, eventName]);
                     callbacks && callbacks.forEach(cb => cb && cb(ev));
-                    tgt = tgt.parentElement
-                }
-            })
+                });
+            });
             callbacks = [];
         }
         callbacks.push(cb);
@@ -33,104 +124,74 @@ export class View extends Model {
 
         return () => {
             let callbacks = callbacksByEventElement.get([element, eventName]);
-            callbacksByEventElement.set([element, eventName], callbacks.filter(c => c != cb));
-        }
+            callbacksByEventElement.set(
+                [element, eventName],
+                callbacks.filter(c => c != cb)
+            );
+        };
     }
 
     static addEventBinder(eventName) {
-        View.addBinder(`bind-${eventName}`, function (path, element) {
-
+        View.addBinder(`bind-${eventName}`, function(path, element) {
             let bindingMode = element.getAttribute(`var-${eventName}-mode`) || View.defaultEventMode;
+            // console.log("View -> addEventBinder -> path, element", path, element);
 
-            if (bindingMode == 'aggregated') {
-
-                let cb = ev => this.set(path, ev);
+            let cb = ev => {
+                // console.log("View -> addEventBinder -> cb -> path, element", path, element);
+                this.set(path, ev);
+            };
+            if (bindingMode == "aggregated") {
                 return View.addAggregatedEventListener(eventName, element, cb);
-
             } else {
-                let fn = (ev) => this.set(path, ev);
-                element.addEventListener(eventName, fn);
-                return () => element.removeEventListener(eventName, fn);
+                // let fn = ev => this.set(path, ev);
+                element.addEventListener(eventName, cb);
+                return () => element.removeEventListener(eventName, cb);
             }
-        })
-    }
-
-    constructor(elements) {
-        super();
-        this.elements = elements || this.elements;
-        if (this.elements == 'body') {
-            this.render();
-        }
-    }
-
-    render() {
-        let elements = this.elements;
-
-        if (document && elements) {
-
-            if (isString(elements)) {
-                if (elements == 'body') {
-                    elements = [document.body];
-                } else {
-                    let div = document.createElement('div');
-                    div.innerHTML = elements;
-                    elements = Array.from(div.children);
-                }
-            }
-
-            if (isArray(elements)) {
-                let ubs = elements.reduce((unbinders, el) => {
-                    let ubs = bind(this, el);
-                    return [...unbinders, ...ubs];
-                }, []);
-                this.onDestroyCallbacks = [...this.onDestroyCallbacks, ...ubs];
-            }
-        }
-
-        this.set(RENDERED_PATH, true);
+        });
     }
 }
 
 /// this binder sets the element instance to the property provided
-View.addBinder('bind-element', function (prop, element) {
+View.addBinder("bind-element", function(prop, element) {
     this.set(prop, element);
-})
+});
 
 /// this binder shows or hides element
 let showModesMap = {
-    'display': {
-        show: (el) => {
-            if (el.style.getPropertyValue('display') == "none") {
-                el.style.removeProperty('display');
+    display: {
+        show: el => {
+            if (el.style.getPropertyValue("display") == "none") {
+                el.style.removeProperty("display");
             }
         },
-        hide: (el) => {
-            if (el.style.getPropertyValue('display') != "none") {
-                el.style.setProperty('display', 'none');
+        hide: el => {
+            if (el.style.getPropertyValue("display") != "none") {
+                el.style.setProperty("display", "none");
             }
         }
     },
-    'transform': {
-        show: (el) => {
-            if (el.style.getPropertyValue('transform') == "scale(0)") {
-                el.style.setProperty('transform', 'scale(1)');
+    transform: {
+        show: el => {
+            if (el.style.getPropertyValue("transform") == "scale(0)") {
+                el.style.setProperty("transform", "scale(1)");
             }
         },
-        hide: (el) => {
-            if (el.style.getPropertyValue('transform') == "scale(1)") {
-                el.style.setProperty('transform', 'scale(0)');
+        hide: el => {
+            if (el.style.getPropertyValue("transform") == "scale(1)") {
+                el.style.setProperty("transform", "scale(0)");
             }
         }
-    },
-}
-View.addBinder('bind-show', function (prop, element) {
-    let showVal = element.getAttribute('var-show-for-value') || true;
-    let showMode = element.getAttribute('var-show-mode') || 'display';
-    let mode = showModesMap[showMode] || showModesMap['display'];
+    }
+};
+
+View.addBinder("bind-show", function(prop, element) {
+    let showVal = element.getAttribute("var-show-for-value") || true;
+    let showMode = element.getAttribute("var-show-mode") || "display";
+    let mode = showModesMap[showMode] || showModesMap["display"];
 
     mode.hide(element);
 
-    let watchId = this.change(prop, (show) => {
+    let watchId = this.change(prop, show => {
         if (show == showVal) {
             mode.show(element);
         } else {
@@ -139,15 +200,16 @@ View.addBinder('bind-show', function (prop, element) {
     });
 
     return () => this.unwatch(watchId);
-})
-View.addBinder('bind-hide', function (prop, element) {
-    let hideVal = element.getAttribute('var-hide-for-value') || true;
-    let hideMode = element.getAttribute('var-hide-mode') || 'display';
-    let mode = showModesMap[hideMode] || showModesMap['display'];
+});
+
+View.addBinder("bind-hide", function(prop, element) {
+    let hideVal = element.getAttribute("var-hide-for-value") || true;
+    let hideMode = element.getAttribute("var-hide-mode") || "display";
+    let mode = showModesMap[hideMode] || showModesMap["display"];
 
     mode.show(element);
 
-    let watchId = this.change(prop, (hide) => {
+    let watchId = this.change(prop, hide => {
         if (hide == hideVal) {
             mode.hide(element);
         } else {
@@ -156,18 +218,17 @@ View.addBinder('bind-hide', function (prop, element) {
     });
 
     return () => this.unwatch(watchId);
-})
+});
 
-View.addBinder('bind-class', function (prop, element) {
+View.addBinder("bind-class", function(prop, element) {
     let prevCls = {};
-    let watchId = this.watch(prop, (cls) => {
-
-        Object.keys(prevCls).forEach(cl => prevCls[cl] = false);
+    let watchId = this.watch(prop, cls => {
+        Object.keys(prevCls).forEach(cl => (prevCls[cl] = false));
 
         if (isObject(cls)) {
-            Object.keys(cls).forEach(cl => prevCls[cl] = cls[cl])
+            Object.keys(cls).forEach(cl => (prevCls[cl] = cls[cl]));
         } else if (isArray(cls)) {
-            cls.forEach(cl => prevCls[cl] = true);
+            cls.forEach(cl => (prevCls[cl] = true));
         } else if (isString(cls)) {
             prevCls[cls] = true;
         }
@@ -179,124 +240,143 @@ View.addBinder('bind-class', function (prop, element) {
                 element.classList.remove(cl);
             }
         });
-
     });
 
     return () => this.unwatch(watchId);
-})
+});
 
-View.addBinder('bind-text', function (prop, element) {
-    let watchId = this.watch(prop, (text) => {
-        element.innerText = text
+View.addBinder("bind-text", function(prop, element) {
+    let watchId = this.watch(prop, text => {
+        element.innerText = text;
     });
 
     return () => this.unwatch(watchId);
-})
+});
 
 /// this binder sets the element instance to the property provided
-View.addBinder('bind-child-elements', function (prop, element) {
+View.addBinder("bind-child-elements", function(prop, element) {
     let prevElements = [];
-    let watchId = this.watch(prop, (elements) => {
-
+    let watchId = this.watch(prop, elements => {
         elements.forEach(el => element.appendChild(el));
 
         prevElements
             .filter(pel => !elements.find(el => pel == el))
             .forEach(pel => {
-                unbind([pel])
-                element.removeChild(pel)
+                unbind([pel]);
+                element.removeChild(pel);
             });
 
         prevElements = [...elements];
     });
 
     return () => this.unwatch(watchId);
-})
+});
 
 const callbacksByEventElement = new CompositeKeyWeakMap();
-View.defaultEventMode = 'aggregated';
+View.defaultEventMode = "aggregated";
 let b = [
     // keyboard events
-    "keydown", "keypress", "keyup",
+    "keydown",
+    "keypress",
+    "keyup",
     // mouse events
-    "click", "dblclick", "mousedown", "mouseenter",
-    "mouseleave", "mousemove", "mouseout",
-    "mouseover", "mouseup", "mousewheel",
+    "click",
+    "dblclick",
+    "mousedown",
+    "mouseenter",
+    "mouseleave",
+    "mousemove",
+    "mouseout",
+    "mouseover",
+    "mouseup",
+    "mousewheel",
     // input events
-    "focus", "blur", "change", "submit", "paste",
+    "input",
+    "focus",
+    "blur",
+    "change",
+    "submit",
+    "paste",
     // touch events
-    "touchstart", "touchend", "touchmove", "touchcancel"
-].forEach((eventName) => View.addEventBinder(eventName))
+    "touchstart",
+    "touchend",
+    "touchmove",
+    "touchcancel"
+].forEach(eventName => View.addEventBinder(eventName));
 
-let getValueProperty = (el) => {
+let getValueProperty = el => {
     let tagName = el.tagName;
-    if (tagName == 'INPUT') {
-        let type = el.getAttribute('type');
-        if (type == 'checkbox') {
+    if (tagName == "INPUT") {
+        let type = el.getAttribute("type");
+        if (type == "checkbox") {
             return "checked";
         }
-    } else if (tagName == 'SELECT') {
-        return 'values';
+    } else if (tagName == "SELECT") {
+        return "values";
     } else if (tagName == "DIV") {
-        return 'innerHTML';
+        return "innerHTML";
     }
-    return 'value';
-}
-View.addBinder('bind-value', function (path, el) {
-
+    return "value";
+};
+View.addBinder("bind-value", function(path, el) {
     let valueProperty = getValueProperty(el);
 
-    var handler = throttle(() => {
+    // var handler = throttle(() => {
+    //     this.set(path, el[valueProperty]);
+    // }, 100);
+    let handler = () => {
         this.set(path, el[valueProperty]);
-    }, 100);
+    };
 
-    let unbindCbs = ['change', 'keyup'].map((eventName) => {
+    let unbindCbs = ["input"].map(eventName => {
         // el.addEventListener(eventName, handler);
-        return View.addAggregatedEventListener(eventName, el, handler)
+        return View.addAggregatedEventListener(eventName, el, handler);
     });
 
-    let watchId = this.change(path, function (value) {
+    let watchId = this.change(path, function(value) {
         el[valueProperty] = value;
     });
 
     return () => {
         unbindCbs.forEach(cb => cb && cb());
         this.unwatch(watchId);
-    }
+    };
 });
 
 /// this binder sets the element instance to the property provided
-View.addBinder('bind-component', function (prop, element) {
-
+View.addBinder("bind-component", function(prop, element) {
     let prevComponent;
-    let watchId = this.watch(prop, (component) => {
+    let watchId = this.change(prop, async component => {
+        console.log("component", component, prop, element);
 
-        if (!component) {
+        if (component != prevComponent) {
             while (element.firstChild) {
                 element.removeChild(element.firstChild);
             }
-            return;
         } else if (component == prevComponent) {
             return;
         }
+        if (!component) return;
 
-        if (!component.get(RENDERED_PATH)) {
-            component.render();
+        let { elements } = component;
+        console.log("elements", elements);
+        if (!elements) {
+            elements = await component.render();
+            console.log("elements", elements);
         }
 
-        component.elements.forEach(el => element.appendChild(el));
+        elements.forEach(el => element.appendChild(el));
 
         prevComponent = component;
     });
 
     return () => this.unwatch(watchId);
-})
+});
 
 /// this binder sets the element instance to the property provided
-View.addBinder('bind-components', function (prop, element) {
+View.addBinder("bind-components", function(prop, element) {
     let prevComponents = [];
-    let watchId = this.watch(prop, (components) => {
-
+    let watchId = this.watch(prop, components => {
         if (!components) {
             while (element.firstChild) {
                 element.removeChild(element.firstChild);
@@ -317,11 +397,11 @@ View.addBinder('bind-components', function (prop, element) {
         prevComponents.forEach(comp => {
             comp.elements.forEach(el => {
                 element.removeChild(el);
-            })
+            });
         });
 
         prevComponents = components;
     });
 
     return () => this.unwatch(watchId);
-})
+});

@@ -1,155 +1,184 @@
-import {
-    queueWatchesForPath,
-    suspend,
-    resume,
-    watch,
-    unwatch,
-    destroyWatches
-} from './helpers/watch';
-import { initGetSet, get, set, destroyState } from './helpers/base';
-import isArray from 'lodash/isArray';
-import isUndefined from 'lodash/isUndefined';
-import isFunction from 'lodash/isFunction';
-import { formatCallback } from './helpers/inject';
-import { WATCH, CHANGE } from './helpers/constants';
-
-
+function isPrimitive(test) {
+    return test !== Object(test);
+}
 
 export class Model {
-
     constructor() {
-        this.onDestroyCallbacks = [];
-        initGetSet(this);
+        // TODO: change this to private
+        this.watchesByPath = {};
+        this.modelOnPath = {};
+        this.listeners = [];
+        this.destroyCallbacks = [];
+        this.lockByCallback = new WeakMap();
+        this.$$prevValueMap = new Map();
     }
 
     get(path) {
+        let props = path.split(".");
 
-        if (path) {
-            if (isArray(path)) {
-                return path.map(p => this.get(p));
+        let result = this;
+
+        for (let i = 0, len = props.length; i < len; i++) {
+            let prop = props[i];
+            let value = result[prop];
+
+            if (isPrimitive(value) && i < len - 1) {
+                return;
             } else {
-                return get(this, path);
+                result = result[prop];
             }
         }
 
+        return result;
     }
 
     set(path, value) {
+        let props = path.split(".");
 
-        if (!isUndefined(path) && !isUndefined(value)) {
-            set(this, path, value);
-            queueWatchesForPath(this, path);
+        let result = this;
+
+        for (let i = 0, len = props.length; i < len - 1; i++) {
+            let prop = props[i];
+            let _value = result[prop];
+
+            if (isPrimitive(_value)) {
+                _value = result[prop] = new Model();
+            }
+
+            result = _value;
         }
 
+        let prop = props.pop();
+        result[prop] = value;
+
+        if (props.length > 1) {
+            let descriptor = Object.getOwnPropertyDescriptor(result, prop);
+            if (!descriptor || !descriptor.get) {
+                this.trigger(path);
+            }
+        }
     }
 
-    suspend() {
-        suspend(this);
+    wrap(path) {
+        let props = path.split(".");
+        let prop = props.shift();
+
+        let descriptor = Object.getOwnPropertyDescriptor(this, prop);
+
+        if (!descriptor || !descriptor.get) {
+            let value = this[prop];
+            Object.defineProperty(this, prop, {
+                get: () => value,
+                set: _value => {
+                    if (value != _value && value instanceof Model) {
+                        value.removeListener(this, prop);
+                    }
+
+                    // TODO: need to check why this is not working
+                    // if (!isPrimitive(_value) || typeof _value == "object") {
+                    //     console.log("setting new watcher", this, prop, _value);
+                    //     _value = new JustWatch(_value);
+                    // }
+
+                    if (value != _value && _value instanceof Model) {
+                        _value.addListener(this, prop);
+                        this.modelOnPath[prop] = _value;
+
+                        // achieves reccursive wrapping and watching
+                        Object.keys(this.watchesByPath)
+                            .filter(_path => _path.startsWith(`${prop}.`))
+                            .map(p => p.replace(`${prop}.`, ""))
+                            // .forEach(path => _value.watch(path, () => {}));
+                            .forEach(path => _value.wrap(path));
+                    } else {
+                        this.modelOnPath[prop] = false;
+                    }
+
+                    value = _value;
+
+                    this.trigger(prop);
+                }
+            });
+
+            this[prop] = value;
+        }
     }
 
-    resume() {
-        resume(this);
-    }
+    trigger(path, watch) {
+        let callback = ({ path, callback, behaviour }) => {
+            let prevValue = this.$$prevValueMap.get(path);
+            let value = this.get(path);
+            if (behaviour == "change") {
+                if (value !== prevValue) {
+                    console.log("Model -> callback ->  path", path);
+                    callback(value);
+                }
+                // need to trigger if value is changing to undefined
+            } else if (value !== prevValue || value !== undefined) {
+                console.log("Model -> callback ->  path", path);
+                callback(value);
+            }
+            this.$$prevValueMap.set(path, value);
+            this.lockByCallback.set(callback, false);
+        };
 
-    watch(model, path, callback) {
-        if (arguments.length == 2) {
-            callback = path;
-            path = model;
-            model = this;
+        if (watch) {
+            callback(watch);
+            return;
         }
 
-        let watchId;
-        if (model === this) {
-            watchId = watch(this, path, callback)
-        } else {
-            watchId = model.watch(path, callback)
-            this.onDestroyCallbacks.push(() => model.unwatch(watchId))
-        }
+        // filtering watches
+        let watches = Object.keys(this.watchesByPath)
+            // .filter(_path => _path == path || _path.startsWith(`${path}.`) || path.startsWith(`${_path}.`))
+            .filter(_path => _path == path)
+            .flatMap(p => this.watchesByPath[p]);
 
-        return watchId;
+        // executing watches
+        watches.forEach(callback);
+
+        // propagating to listeners
+        this.listeners.forEach(({ listener, prop }) => listener.trigger(`${prop}.${path}`));
+    }
+
+    addListener(listener, prop) {
+        this.listeners.push({ listener, prop });
+    }
+
+    removeListener(listener, prop) {
+        this.listeners = this.listeners.filter((_listener, _prop) => _listener != listener || _prop != prop);
+    }
+
+    watch(path, callback, behaviour) {
+        let watches = (this.watchesByPath[path] = this.watchesByPath[path] || []);
+        let watch = { path, callback, behaviour };
+        watches.push(watch);
+        this.wrap(path);
+        this.trigger(path, watch);
+        return watch;
+    }
+
+    change(path, callback) {
+        return this.watch(path, callback, "change");
     }
 
     unwatch(identifier) {
-        unwatch(context, identifier);
+        let watches = this.watchesByPath[identifier];
+        if (watches) {
+            this.watchesByPath[identifier] = [];
+        } else {
+            Object.keys(this.watchesByPath).forEach(path => {
+                this.watchesByPath[path] = this.watchesByPath[path].filter(watch => watch !== identifier && watch.callback !== identifier);
+            });
+        }
     }
 
     destroy() {
-        this.onDestroyCallbacks.forEach(callback => callback && callback());
-        destroyState(this);
-        destroyWatches(this);
-    }
-
-    // [[type:'watch|change|inject',] [model,] path, [isOptional]]
-    compose(pathSets, callback) {
-        let formatted = formatCallback(this, pathSets, callback, Model);
-
-        formatted.watchedModels.forEach(m => m.suspend());
-
-        let watchIds = formatted.pathSets.map(set => {
-            if (set[0] === WATCH) {
-                return this.watch(set[1], set[2], formatted.injectedCallback);
-            } else if (set[0] === CHANGE) {
-                return this.change(set[1], set[2], formatted.injectedCallback);
-            }
-        }).filter(id => id);
-
-        formatted.watchedModels.forEach(m => m.resume());
-
-        return watchIds;
-    }
-
-    inject(pathSets, callback) {
-
-        if (isString(callback)) {
-            let targetPath = callback;
-            if (isFunction(this[targetPath])) {
-                return this[targetPath] = this.inject(pathSets, this[targetPath]);
-            }
-        } else {
-            let formatted = formatCallback(this, pathSets, callback, Model);
-            return formatted.injectedCallback;
-        }
-    }
-
-    change(model, path, callback) {
-
-        if (arguments.length == 2) {
-            callback = path;
-            path = model;
-            model = this;
-        }
-
-        let prevVal = model.get(path);
-
-        return this.watch(model, path, (currentVal) => {
-            if (currentVal != prevVal) {
-                callback(currentVal, prevVal);
-                prevVal = currentVal;
-            }
+        this.destroyCallbacks && this.destroyCallbacks.forEach(callback => callback && callback());
+        Object.keys(this.modelOnPath).forEach(path => {
+            let model = this.modelOnPath[path];
+            model && model.removeListener(this, path);
         });
-    }
-
-    static compose(SourceModel) {
-        class DestinationModel extends SourceModel { }
-
-        let sourcePrototype = SourceModel.prototype;
-        let destinationPrototype = DestinationModel.prototype;
-
-        Object.keys(sourcePrototype).forEach(prop => {
-            let propertyValue = sourcePrototype[prop];
-            if (isArray(propertyValue)) {
-                let pathSets = [...propertyValue];
-                let callback = pathSets.pop();
-                if (isFunction(callback)) {
-                    destinationPrototype[prop] = function () {
-                        this.compose(pathSets, callback);
-                        this.inject(pathSets, prop);
-                        return destinationPrototype[prop]()
-                    }
-                }
-            }
-        })
-
-        return DestinationModel;
+        this.watchesByPath = {};
+        this.listeners = [];
     }
 }
