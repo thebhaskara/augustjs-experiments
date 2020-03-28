@@ -2,8 +2,9 @@ const path = require('path');
 const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 
 module.exports = {
-    mode: 'production',
-    // mode: 'development',
+    // mode: 'production',
+    mode: 'development',
+    watch: true,
     entry: './src/index.js',
     output: {
         filename: 'August.js',
@@ -18,10 +19,7 @@ module.exports = {
             use: [{
                 loader: 'babel-loader',
                 options: {
-                    presets: [
-                        "@babel/preset-env",
-                        // "@babel/preset-react"
-                    ],
+                    presets: ["@babel/preset-env"],
                     plugins: [
                         ["@babel/plugin-proposal-class-properties"]
                     ],

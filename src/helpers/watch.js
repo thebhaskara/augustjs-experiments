@@ -11,6 +11,14 @@ export function watch(context, path, callback) {
     watches.push(watch);
 
     watchesByContext.set(context, watches);
+
+    if (typeof context.get(path) != 'undefined') {
+        let queue = watchQueueByContext.get(context) || [];
+        queue.push(watch);
+        watchQueueByContext.set(context, queue);
+        processQueue();
+    }
+
     return watch.id;
 }
 
@@ -37,12 +45,14 @@ export function processQueue(context) {
     let queue = watchQueueByContext.get(context) || [];
 
     if (isSuspended == 0 && queue.length > 0) {
-        // suspend(context);
+        suspend(context);
         let watch = queue[0];
         watch.callback(context.get(watch.path));
+        queue = watchQueueByContext.get(context)
         queue.shift();
-        // resume(context);
-        processQueue();
+        watchQueueByContext.set(context, queue);
+        resume(context);
+        // processQueue();
     }
 }
 
@@ -58,7 +68,7 @@ export function resume(context) {
         isSuspended = 0;
         isSuspendedByContext.set(context, isSuspended);
         processQueue(context);
-    } else {   
+    } else {
         isSuspendedByContext.set(context, isSuspended);
     }
 }

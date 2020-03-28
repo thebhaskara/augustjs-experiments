@@ -2,7 +2,7 @@
   "name": "augustjs",
   "version": "1.0.0",
   "description": "A simple model structure",
-  "main": "index.js",
+  "main": "dist/August.js",
   "scripts": {
     "test": "mocha --require @babel/register",
     "start": "webpack-dev-server --open",
@@ -23,18 +23,18 @@
     "lodash": "^4.17.15"
   },
   "devDependencies": {
-    "@babel/cli": "^7.5.5",
+    "@babel/cli": "^7.8.4",
     "@babel/core": "^7.7.4",
     "@babel/node": "^7.5.5",
     "@babel/plugin-proposal-class-properties": "^7.7.4",
     "@babel/preset-env": "^7.7.4",
-    "@babel/register": "^7.5.5",
+    "@babel/register": "^7.9.0",
     "babel-loader": "^8.0.6",
     "chai": "^4.2.0",
     "clean-webpack-plugin": "^3.0.0",
     "eslint": "^6.6.0",
     "mocha": "^6.2.0",
-    "nodemon": "^1.19.1",
+    "nodemon": "^2.0.2",
     "webpack": "^4.41.2",
     "webpack-cli": "^3.3.10",
     "webpack-dev-server": "^3.9.0"
