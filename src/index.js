@@ -1,4 +1,5 @@
 import { Model } from "./Model";
-import { View } from "./View";
+import { ModelElement } from './ModelElement';
+import { ViewElement } from "./ViewElement";
 
-export { Model, View };
+export { Model, ModelElement, ViewElement };

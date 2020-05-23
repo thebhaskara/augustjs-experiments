@@ -1,5 +1,6 @@
 import { Model } from "./Model.js";
 import { CompositeKeyWeakMap } from "./helpers/CompositeKeyWeakMap.js";
+import { ModelElement } from './ModelElement';
 
 const importedContentByUrl = new Map();
 
@@ -21,7 +22,7 @@ let bindersList = "";
 
 const classGeneratorMap = {};
 
-export class View extends Model {
+export class ViewElement extends ModelElement {
     constructor() {
         super();
         this.$$elementDestroyCallbacks = [];
@@ -122,7 +123,7 @@ export class View extends Model {
             // }
         }
 
-        View.attachBinders(this, el);
+        ViewElement.attachBinders(this, el);
         this.rendered = true;
 
         Array.from(this.attributes).forEach((attr) => this.attributeChangedCallback(attr.name, attr.value));
@@ -141,7 +142,7 @@ export class View extends Model {
     }
 
     static getClassString(className) {
-        let map = View.classGeneratorMap || classGeneratorMap;
+        let map = ViewElement.classGeneratorMap || classGeneratorMap;
 
         let str = "";
         let arr = className.split(":");
@@ -216,8 +217,8 @@ export class View extends Model {
     }
 
     static addEventBinder(eventName) {
-        View.addBinder(`bind-${eventName}`, function (path, element) {
-            let bindingMode = element.getAttribute(`var-${eventName}-mode`) || View.defaultEventMode;
+        ViewElement.addBinder(`bind-${eventName}`, function (path, element) {
+            let bindingMode = element.getAttribute(`var-${eventName}-mode`) || ViewElement.defaultEventMode;
             // console.log("View -> addEventBinder -> path, element", path, element);
 
             let cb = (ev) => {
@@ -225,7 +226,7 @@ export class View extends Model {
                 this.set(path, ev);
             };
             if (bindingMode == "aggregated") {
-                return View.addAggregatedEventListener(eventName, element, cb);
+                return ViewElement.addAggregatedEventListener(eventName, element, cb);
             } else {
                 // let fn = ev => this.set(path, ev);
                 element.addEventListener(eventName, cb);
@@ -236,7 +237,7 @@ export class View extends Model {
 }
 
 /// this binder sets the element instance to the property provided
-View.addBinder("bind-element", function (prop, element) {
+ViewElement.addBinder("bind-element", function (prop, element) {
     this.set(prop, element);
 });
 
@@ -268,7 +269,7 @@ let showModesMap = {
     },
 };
 
-View.addBinder("bind-show", function (prop, element) {
+ViewElement.addBinder("bind-show", function (prop, element) {
     let showVal = element.getAttribute("var-show-for-value") || true;
     let showMode = element.getAttribute("var-show-mode") || "display";
     let mode = showModesMap[showMode] || showModesMap["display"];
@@ -286,7 +287,7 @@ View.addBinder("bind-show", function (prop, element) {
     return () => this.unwatch(watchId);
 });
 
-View.addBinder("bind-hide", function (prop, element) {
+ViewElement.addBinder("bind-hide", function (prop, element) {
     let hideVal = element.getAttribute("var-hide-for-value") || true;
     let hideMode = element.getAttribute("var-hide-mode") || "display";
     let mode = showModesMap[hideMode] || showModesMap["display"];
@@ -304,7 +305,7 @@ View.addBinder("bind-hide", function (prop, element) {
     return () => this.unwatch(watchId);
 });
 
-View.addBinder("bind-class", function (prop, element) {
+ViewElement.addBinder("bind-class", function (prop, element) {
     let prevCls = {};
     let watchId = this.watch(prop, (cls) => {
         Object.keys(prevCls).forEach((cl) => (prevCls[cl] = false));
@@ -329,7 +330,7 @@ View.addBinder("bind-class", function (prop, element) {
     return () => this.unwatch(watchId);
 });
 
-View.addBinder("bind-text", function (prop, element) {
+ViewElement.addBinder("bind-text", function (prop, element) {
     let watchId = this.watch(prop, (text) => {
         element.innerText = text;
     });
@@ -338,7 +339,7 @@ View.addBinder("bind-text", function (prop, element) {
 });
 
 /// this binder sets the element instance to the property provided
-View.addBinder("bind-child-elements", function (prop, element) {
+ViewElement.addBinder("bind-child-elements", function (prop, element) {
     let prevElements = [];
     let watchId = this.watch(prop, (elements) => {
         elements.forEach((el) => element.appendChild(el));
@@ -386,7 +387,7 @@ let b = [
     "touchend",
     "touchmove",
     "touchcancel",
-].forEach((eventName) => View.addEventBinder(eventName));
+].forEach((eventName) => ViewElement.addEventBinder(eventName));
 
 let getValueProperty = (el) => {
     let tagName = el.tagName;
@@ -402,7 +403,7 @@ let getValueProperty = (el) => {
     }
     return "value";
 };
-View.addBinder("bind-value", function (path, el) {
+ViewElement.addBinder("bind-value", function (path, el) {
     let valueProperty = getValueProperty(el);
 
     // var handler = throttle(() => {
@@ -414,7 +415,7 @@ View.addBinder("bind-value", function (path, el) {
 
     let unbindCbs = ["input"].map((eventName) => {
         // el.addEventListener(eventName, handler);
-        return View.addAggregatedEventListener(eventName, el, handler);
+        return ViewElement.addAggregatedEventListener(eventName, el, handler);
     });
 
     let watchId = this.change(path, function (value) {
@@ -428,7 +429,7 @@ View.addBinder("bind-value", function (path, el) {
 });
 
 /// this binder sets the element instance to the property provided
-View.addBinder("bind-component", function (prop, element) {
+ViewElement.addBinder("bind-component", function (prop, element) {
     let prevComponent;
     let watchId = this.watch(prop, async (component) => {
         if (component != prevComponent) {
@@ -454,7 +455,7 @@ View.addBinder("bind-component", function (prop, element) {
 });
 
 /// this binder sets the element instance to the property provided
-View.addBinder("bind-components", function (prop, element) {
+ViewElement.addBinder("bind-components", function (prop, element) {
     let prevComponents = [];
     let watchId = this.watch(prop, (components) => {
         if (!components) {

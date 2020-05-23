@@ -2,11 +2,13 @@ function isPrimitive(test) {
     return test !== Object(test);
 }
 
-let HTMLElement = (window && window.HTMLElement) || class {};
-
-export class Model extends HTMLElement {
+export class Model {
     constructor() {
-        super();
+        this.init();
+    }
+    //TODO: should I consider to prefixing method names 
+    // because when it is used as element, they already have soo many properties?
+    init() {
         // TODO: change this to private
         this.$$watchesByPath = {};
         this.$$modelOnPath = {};
@@ -72,24 +74,24 @@ export class Model extends HTMLElement {
             // set activity while initializing was not attaching listeners
             // because the values are same
             let prevvalue = this[prop];
-            let value;// = this[prop];
+            let value; // = this[prop];
             Object.defineProperty(this, prop, {
                 get: () => value,
-                set: _value => {
-                    if (value != _value && value instanceof Model) {
+                set: (_value) => {
+                    if (value != _value && Model.isModel(value)) {
                         value.removeListener(this, prop);
                     }
 
-                    if (value != _value && _value instanceof Model) {
+                    if (value != _value && Model.isModel(_value)) {
                         _value.addListener(this, prop);
                         this.$$modelOnPath[prop] = _value;
 
                         // achieves reccursive wrapping and watching
                         Object.keys(this.$$watchesByPath)
-                            .filter(_path => _path.startsWith(`${prop}.`))
-                            .map(p => p.replace(`${prop}.`, ""))
+                            .filter((_path) => _path.startsWith(`${prop}.`))
+                            .map((p) => p.replace(`${prop}.`, ""))
                             // .forEach(path => _value.watch(path, () => {}));
-                            .forEach(path => _value.wrap(path));
+                            .forEach((path) => _value.wrap(path));
                     } else {
                         this.$$modelOnPath[prop] = false;
                     }
@@ -97,7 +99,7 @@ export class Model extends HTMLElement {
                     value = _value;
 
                     this.trigger(prop);
-                }
+                },
             });
 
             this[prop] = prevvalue;
@@ -128,8 +130,8 @@ export class Model extends HTMLElement {
         // filtering watches
         let watches = Object.keys(this.$$watchesByPath)
             // .filter(_path => _path == path || _path.startsWith(`${path}.`) || path.startsWith(`${_path}.`))
-            .filter(_path => _path == path)
-            .flatMap(p => this.$$watchesByPath[p]);
+            .filter((_path) => _path == path)
+            .flatMap((p) => this.$$watchesByPath[p]);
 
         // executing watches
         watches.forEach(callback);
@@ -155,6 +157,19 @@ export class Model extends HTMLElement {
         return watch;
     }
 
+    // syntax path or path!change
+    watchAll(watches, callback) {
+        let list = watches.map((w) => w.split("!"));
+
+        let cb = () =>
+            callback.apply(
+                this,
+                list.map((arr) => this.get(arr[0]))
+            );
+
+        return list.map((arr) => this.watch(arr[0], cb, arr[1]));
+    }
+
     change(path, callback) {
         return this.watch(path, callback, "change");
     }
@@ -164,19 +179,33 @@ export class Model extends HTMLElement {
         if (watches) {
             this.$$watchesByPath[identifier] = [];
         } else {
-            Object.keys(this.$$watchesByPath).forEach(path => {
-                this.$$watchesByPath[path] = this.$$watchesByPath[path].filter(watch => watch !== identifier && watch.callback !== identifier);
+            Object.keys(this.$$watchesByPath).forEach((path) => {
+                this.$$watchesByPath[path] = this.$$watchesByPath[path].filter((watch) => watch !== identifier && watch.callback !== identifier);
             });
         }
     }
 
     destroy() {
-        this.$$destroyCallbacks && this.$$destroyCallbacks.forEach(callback => callback && callback());
-        Object.keys(this.$$modelOnPath).forEach(path => {
+        this.$$destroyCallbacks && this.$$destroyCallbacks.forEach((callback) => callback && callback());
+        Object.keys(this.$$modelOnPath).forEach((path) => {
             let model = this.$$modelOnPath[path];
             model && model.removeListener(this, path);
         });
         this.$$watchesByPath = {};
         this.$$listeners = [];
     }
+
+    static isModel(Obj) {
+        if (!Obj) {
+            return false;
+        }
+        for (let prop of ModelProtoFunctions) {
+            if (!Obj[prop]) {
+                return false;
+            }
+        }
+        return true;
+    }
 }
+
+let ModelProtoFunctions = Object.getOwnPropertyNames(Model.prototype).filter((prop) => prop != "constructor" && prop != "init");
