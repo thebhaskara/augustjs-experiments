@@ -2,14 +2,17 @@ function isPrimitive(test) {
     return test !== Object(test);
 }
 
-export class Model {
+let HTMLElement = (window && window.HTMLElement) || class {};
+
+export class Model extends HTMLElement {
     constructor() {
+        super();
         // TODO: change this to private
-        this.watchesByPath = {};
-        this.modelOnPath = {};
-        this.listeners = [];
-        this.destroyCallbacks = [];
-        this.lockByCallback = new WeakMap();
+        this.$$watchesByPath = {};
+        this.$$modelOnPath = {};
+        this.$$listeners = [];
+        this.$$destroyCallbacks = [];
+        this.$$lockByCallback = new WeakMap();
         this.$$prevValueMap = new Map();
     }
 
@@ -66,7 +69,10 @@ export class Model {
         let descriptor = Object.getOwnPropertyDescriptor(this, prop);
 
         if (!descriptor || !descriptor.get) {
-            let value = this[prop];
+            // set activity while initializing was not attaching listeners
+            // because the values are same
+            let prevvalue = this[prop];
+            let value;// = this[prop];
             Object.defineProperty(this, prop, {
                 get: () => value,
                 set: _value => {
@@ -74,24 +80,18 @@ export class Model {
                         value.removeListener(this, prop);
                     }
 
-                    // TODO: need to check why this is not working
-                    // if (!isPrimitive(_value) || typeof _value == "object") {
-                    //     console.log("setting new watcher", this, prop, _value);
-                    //     _value = new JustWatch(_value);
-                    // }
-
                     if (value != _value && _value instanceof Model) {
                         _value.addListener(this, prop);
-                        this.modelOnPath[prop] = _value;
+                        this.$$modelOnPath[prop] = _value;
 
                         // achieves reccursive wrapping and watching
-                        Object.keys(this.watchesByPath)
+                        Object.keys(this.$$watchesByPath)
                             .filter(_path => _path.startsWith(`${prop}.`))
                             .map(p => p.replace(`${prop}.`, ""))
                             // .forEach(path => _value.watch(path, () => {}));
                             .forEach(path => _value.wrap(path));
                     } else {
-                        this.modelOnPath[prop] = false;
+                        this.$$modelOnPath[prop] = false;
                     }
 
                     value = _value;
@@ -100,7 +100,7 @@ export class Model {
                 }
             });
 
-            this[prop] = value;
+            this[prop] = prevvalue;
         }
     }
 
@@ -110,16 +110,14 @@ export class Model {
             let value = this.get(path);
             if (behaviour == "change") {
                 if (value !== prevValue) {
-                    console.log("Model -> callback ->  path", path);
                     callback(value);
                 }
                 // need to trigger if value is changing to undefined
             } else if (value !== prevValue || value !== undefined) {
-                console.log("Model -> callback ->  path", path);
                 callback(value);
             }
             this.$$prevValueMap.set(path, value);
-            this.lockByCallback.set(callback, false);
+            this.$$lockByCallback.set(callback, false);
         };
 
         if (watch) {
@@ -128,28 +126,28 @@ export class Model {
         }
 
         // filtering watches
-        let watches = Object.keys(this.watchesByPath)
+        let watches = Object.keys(this.$$watchesByPath)
             // .filter(_path => _path == path || _path.startsWith(`${path}.`) || path.startsWith(`${_path}.`))
             .filter(_path => _path == path)
-            .flatMap(p => this.watchesByPath[p]);
+            .flatMap(p => this.$$watchesByPath[p]);
 
         // executing watches
         watches.forEach(callback);
 
         // propagating to listeners
-        this.listeners.forEach(({ listener, prop }) => listener.trigger(`${prop}.${path}`));
+        this.$$listeners.forEach(({ listener, prop }) => listener.trigger(`${prop}.${path}`));
     }
 
     addListener(listener, prop) {
-        this.listeners.push({ listener, prop });
+        this.$$listeners.push({ listener, prop });
     }
 
     removeListener(listener, prop) {
-        this.listeners = this.listeners.filter((_listener, _prop) => _listener != listener || _prop != prop);
+        this.$$listeners = this.$$listeners.filter((_listener, _prop) => _listener != listener || _prop != prop);
     }
 
     watch(path, callback, behaviour) {
-        let watches = (this.watchesByPath[path] = this.watchesByPath[path] || []);
+        let watches = (this.$$watchesByPath[path] = this.$$watchesByPath[path] || []);
         let watch = { path, callback, behaviour };
         watches.push(watch);
         this.wrap(path);
@@ -162,23 +160,23 @@ export class Model {
     }
 
     unwatch(identifier) {
-        let watches = this.watchesByPath[identifier];
+        let watches = this.$$watchesByPath[identifier];
         if (watches) {
-            this.watchesByPath[identifier] = [];
+            this.$$watchesByPath[identifier] = [];
         } else {
-            Object.keys(this.watchesByPath).forEach(path => {
-                this.watchesByPath[path] = this.watchesByPath[path].filter(watch => watch !== identifier && watch.callback !== identifier);
+            Object.keys(this.$$watchesByPath).forEach(path => {
+                this.$$watchesByPath[path] = this.$$watchesByPath[path].filter(watch => watch !== identifier && watch.callback !== identifier);
             });
         }
     }
 
     destroy() {
-        this.destroyCallbacks && this.destroyCallbacks.forEach(callback => callback && callback());
-        Object.keys(this.modelOnPath).forEach(path => {
-            let model = this.modelOnPath[path];
+        this.$$destroyCallbacks && this.$$destroyCallbacks.forEach(callback => callback && callback());
+        Object.keys(this.$$modelOnPath).forEach(path => {
+            let model = this.$$modelOnPath[path];
             model && model.removeListener(this, path);
         });
-        this.watchesByPath = {};
-        this.listeners = [];
+        this.$$watchesByPath = {};
+        this.$$listeners = [];
     }
 }
