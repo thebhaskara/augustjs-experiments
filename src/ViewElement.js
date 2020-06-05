@@ -1,6 +1,6 @@
 import { Model } from "./Model.js";
 import { CompositeKeyWeakMap } from "./helpers/CompositeKeyWeakMap.js";
-import { ModelElement } from './ModelElement';
+import { ModelElement } from "./ModelElement";
 
 const importedContentByUrl = new Map();
 
@@ -27,7 +27,8 @@ export class ViewElement extends ModelElement {
         super();
         this.$$elementDestroyCallbacks = [];
         this.$$destroyCallbacks.push(() => {
-            this.$$elementDestroyCallbacks && this.$$elementDestroyCallbacks.forEach((callback) => callback && callback());
+            this.$$elementDestroyCallbacks &&
+                this.$$elementDestroyCallbacks.forEach((callback) => callback && callback());
         });
     }
 
@@ -241,6 +242,22 @@ ViewElement.addBinder("bind-element", function (prop, element) {
     this.set(prop, element);
 });
 
+const emptyElement = (element) => {
+    while (element.firstChild) {
+        element.removeChild(element.firstChild);
+    }
+};
+
+/// this binder sets the element instance to the property provided
+ViewElement.addBinder("bind-child-element", function (prop, element) {
+    this.watch(prop, (el) => {
+        if (el && el instanceof HTMLElement) {
+            emptyElement(element);
+            element.appendChild(el);
+        }
+    });
+});
+
 /// this binder shows or hides element
 let showModesMap = {
     display: {
@@ -257,12 +274,12 @@ let showModesMap = {
     },
     transform: {
         show: (el) => {
-            if (el.style.getPropertyValue("transform") == "scale(0)") {
+            if (el.style.getPropertyValue("transform") != "scale(1)") {
                 el.style.setProperty("transform", "scale(1)");
             }
         },
         hide: (el) => {
-            if (el.style.getPropertyValue("transform") == "scale(1)") {
+            if (el.style.getPropertyValue("transform") != "scale(0)") {
                 el.style.setProperty("transform", "scale(0)");
             }
         },
@@ -276,7 +293,7 @@ ViewElement.addBinder("bind-show", function (prop, element) {
 
     mode.hide(element);
 
-    let watchId = this.change(prop, (show) => {
+    let watchId = this.watch(prop, (show) => {
         if (show == showVal) {
             mode.show(element);
         } else {
@@ -428,61 +445,67 @@ ViewElement.addBinder("bind-value", function (path, el) {
     };
 });
 
-/// this binder sets the element instance to the property provided
-ViewElement.addBinder("bind-component", function (prop, element) {
-    let prevComponent;
-    let watchId = this.watch(prop, async (component) => {
-        if (component != prevComponent) {
-            while (element.firstChild) {
-                element.removeChild(element.firstChild);
-            }
-        } else if (component == prevComponent) {
-            return;
-        }
-        if (!component) return;
-
-        let { elements } = component;
-        if (!elements) {
-            elements = await component.render();
-        }
-
-        elements.forEach((el) => element.appendChild(el));
-
-        prevComponent = component;
+ViewElement.addBinder("bind-href", function (prop, element) {
+    this.watch(prop, (href) => {
+        element.setAttribute("href", href);
     });
-
-    return () => this.unwatch(watchId);
 });
 
-/// this binder sets the element instance to the property provided
-ViewElement.addBinder("bind-components", function (prop, element) {
-    let prevComponents = [];
-    let watchId = this.watch(prop, (components) => {
-        if (!components) {
-            while (element.firstChild) {
-                element.removeChild(element.firstChild);
-            }
-            return;
-        }
+// /// this binder sets the element instance to the property provided
+// ViewElement.addBinder("bind-component", function (prop, element) {
+//     let prevComponent;
+//     let watchId = this.watch(prop, async (component) => {
+//         if (component != prevComponent) {
+//             while (element.firstChild) {
+//                 element.removeChild(element.firstChild);
+//             }
+//         } else if (component == prevComponent) {
+//             return;
+//         }
+//         if (!component) return;
 
-        components.forEach((component) => {
-            if (!component.get(RENDERED_PATH)) {
-                component.render();
-            }
+//         let { elements } = component;
+//         if (!elements) {
+//             elements = await component.render();
+//         }
 
-            component.elements.forEach((el) => element.appendChild(el));
-            prevComponents = prevComponents.filter((c) => component != c);
-        });
+//         elements.forEach((el) => element.appendChild(el));
 
-        // remove remaining components
-        prevComponents.forEach((comp) => {
-            comp.elements.forEach((el) => {
-                element.removeChild(el);
-            });
-        });
+//         prevComponent = component;
+//     });
 
-        prevComponents = components;
-    });
+//     return () => this.unwatch(watchId);
+// });
 
-    return () => this.unwatch(watchId);
-});
+// /// this binder sets the element instance to the property provided
+// ViewElement.addBinder("bind-components", function (prop, element) {
+//     let prevComponents = [];
+//     let watchId = this.watch(prop, (components) => {
+//         if (!components) {
+//             while (element.firstChild) {
+//                 element.removeChild(element.firstChild);
+//             }
+//             return;
+//         }
+
+//         components.forEach((component) => {
+//             if (!component.get(RENDERED_PATH)) {
+//                 component.render();
+//             }
+
+//             component.elements.forEach((el) => element.appendChild(el));
+//             prevComponents = prevComponents.filter((c) => component != c);
+//         });
+
+//         // remove remaining components
+//         prevComponents.forEach((comp) => {
+//             comp.elements.forEach((el) => {
+//                 element.removeChild(el);
+//             });
+//         });
+
+//         prevComponents = components;
+//     });
+
+//     return () => this.unwatch(watchId);
+// });
