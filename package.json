@@ -20,7 +20,7 @@
   },
   "homepage": "https://github.com/thebhaskara/augustjs#readme",
   "dependencies": {
-    "lodash": "^4.17.15"
+    "lodash": "^4.17.19"
   },
   "devDependencies": {
     "@babel/cli": "^7.8.4",
