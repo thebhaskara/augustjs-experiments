@@ -1,42 +1,41 @@
 {
-  "name": "augustjs",
-  "version": "1.0.0",
-  "description": "A simple model structure",
-  "main": "dist/August.js",
-  "scripts": {
-    "test": "mocha --require @babel/register",
-    "start": "webpack-dev-server --open",
-    "build": "webpack"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/thebhaskara/augustjs.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/thebhaskara/augustjs/issues"
-  },
-  "homepage": "https://github.com/thebhaskara/augustjs#readme",
-  "dependencies": {
-    "lodash": "^4.17.15"
-  },
-  "devDependencies": {
-    "@babel/cli": "^7.8.4",
-    "@babel/core": "^7.7.4",
-    "@babel/node": "^7.5.5",
-    "@babel/plugin-proposal-class-properties": "^7.7.4",
-    "@babel/preset-env": "^7.7.4",
-    "@babel/register": "^7.9.0",
-    "babel-loader": "^8.0.6",
-    "chai": "^4.2.0",
-    "clean-webpack-plugin": "^3.0.0",
-    "eslint": "^6.6.0",
-    "mocha": "^6.2.0",
-    "nodemon": "^2.0.2",
-    "webpack": "^4.41.2",
-    "webpack-cli": "^3.3.10",
-    "webpack-dev-server": "^3.9.0"
-  }
+    "name": "augustjs",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "compile": "tsc",
+        "test": "jest",
+        "jest-init": "jest --init"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/thebhaskara/augustjs.git"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "bugs": {
+        "url": "https://github.com/thebhaskara/augustjs/issues"
+    },
+    "homepage": "https://github.com/thebhaskara/augustjs#readme",
+    "devDependencies": {
+        "@babel/core": "^7.16.0",
+        "@babel/preset-env": "^7.16.4",
+        "@babel/preset-react": "^7.16.0",
+        "@types/jest": "^27.0.3",
+        "babel-loader": "^8.2.3",
+        "clean-webpack-plugin": "^4.0.0",
+        "html-webpack-plugin": "^5.5.0",
+        "jest": "^27.4.4",
+        "ts-loader": "^9.2.6",
+        "typescript": "^4.5.2",
+        "webpack": "^5.65.0",
+        "webpack-cli": "^4.9.1"
+    },
+    "dependencies": {
+        "@babel/preset-typescript": "^7.16.0",
+        "babel-jest": "^27.4.4",
+        "ts-node": "^10.4.0"
+    }
 }

@@ -1,0 +1,11 @@
+{
+    "compilerOptions": {
+        "sourceMap": true,
+        "declaration": true,
+        "declarationMap": true,
+        "declarationDir": "dist",
+        "rootDir": "src",
+        "outDir": "dist"
+    },
+    "exclude": ["node_modules", "dist", "*.config.ts", "**/**/*.test.ts"]
+}
