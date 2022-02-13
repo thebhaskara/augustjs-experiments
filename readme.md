@@ -28,7 +28,7 @@ You can have html, css and controller for a component (like in angular), but thi
 
 Please check the project in example folder for its usage.
 
-[View.ts](src/View/View.ts)
+[View.ts](src/View)
 
 ## StyledWebComponents
 
