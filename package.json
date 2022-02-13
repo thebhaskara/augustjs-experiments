@@ -28,6 +28,7 @@
         "@types/jest": "^27.0.3",
         "babel-loader": "^8.2.3",
         "clean-webpack-plugin": "^4.0.0",
+        "html-loader": "^3.0.1",
         "html-webpack-plugin": "^5.5.0",
         "jest": "^27.4.4",
         "ts-loader": "^9.2.6",
@@ -38,6 +39,9 @@
     "dependencies": {
         "@babel/preset-typescript": "^7.16.0",
         "babel-jest": "^27.4.4",
+        "raw-loader": "^4.0.2",
+        "sass": "^1.45.1",
+        "sass-loader": "^12.4.0",
         "ts-node": "^10.4.0"
     }
 }

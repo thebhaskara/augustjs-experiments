@@ -1,0 +1,37 @@
+html,
+body,
+.full-body,
+:host {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+:root {
+    --gap: 10px;
+}
+
+.flex {
+    display: flex;
+    gap: var(--gap);
+   
+    &.row {
+        flex-direction: row;
+    }
+   
+    &.column {
+        flex-direction: column;
+    }
+
+    &.center {
+        justify-content: center;
+        align-items: center;
+    }
+
+    > .grow {
+        flex-grow: 1;
+        overflow: auto;
+    }
+}
