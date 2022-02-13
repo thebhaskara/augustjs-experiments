@@ -1,6 +1,12 @@
-import _ from "lodash"
-import { emptyElement } from "../Helpers/emptyElement"
 import { Model } from "../Model/Model"
+import { AttributeBinder } from "./binders/attribute-binder"
+import { ClassBinder } from "./binders/class-binder"
+import { ComponentBinder, ComponentsBinder } from "./binders/component-binder"
+import { ElementBinder } from "./binders/element-binder"
+import { EventBinder } from "./binders/event-binder"
+import { PropertyBinder } from "./binders/property-binder"
+import { StyleBinder } from "./binders/style-binder"
+import { StyleFromDynamicExpression, StyleFromStaticExpression } from "./binders/style-from-expression-binder"
 
 type ViewBinderCallback = (
     view: View,
@@ -12,20 +18,38 @@ interface ViewBinderDefinition {
     pattern: RegExp
     callback: Function
 }
+interface ViewRegisterWebComponentOptions {
+    tagName: string
+    getView: () => Promise<typeof View>
+    shadow?: boolean
+    propertyMap?: Object
+}
+interface ViewRenderOptions {
+    hostElement?: Element
+    domContainerElement?: ShadowRoot | Element
+}
 
 export class View extends Model {
+    name: string
     html: string
     css: string
-    elements: Element[]
+    styleElement: HTMLElement
+    container: ShadowRoot | HTMLElement
 
-    render() {
-        if (this.elements) return this.elements
+    render(container: ShadowRoot | HTMLElement = document.createElement("div")) {
+        this.container = container
 
-        let container = document.createElement("div")
+        let rootNode = container.getRootNode() as any
+        rootNode = rootNode.head ?? rootNode
+
+        let hostElement = container instanceof ShadowRoot ? container.host : container
+
+        let viewName = (this.name = this.name ?? `august-view-${this.id}`)
+
         container.innerHTML = this.html
 
-        container.querySelectorAll("*").forEach((el: Element) => {
-            Array.from(el.attributes).forEach((attr: Attr) => {
+        const bindCallback = (el: Element, attributes: NamedNodeMap) => {
+            Array.from(attributes).forEach((attr: Attr) => {
                 View.binders.forEach((binder) => {
                     let attributeMatchArray: RegExpMatchArray[] = Array.from(attr.name.matchAll(binder.pattern))
                     if (attributeMatchArray.length == 1) {
@@ -34,13 +58,30 @@ export class View extends Model {
                     }
                 })
             })
-        })
+            el.setAttribute(viewName, "")
+        }
 
-        let styleElement = document.createElement("style")
-        styleElement.innerHTML = this.css
-        container.appendChild(styleElement)
+        if (container.children[0].tagName == "HOST") {
+            let host = container.children[0]
+            host.classList.forEach((cls) => hostElement.classList.add(cls))
+            bindCallback(hostElement, host.attributes)
+            container.append(...Array.from(host.children))
+            container.removeChild(host)
+        }
 
-        return (this.elements = Array.from(container.children))
+        container.querySelectorAll("*").forEach((el) => bindCallback(el, el.attributes))
+
+        let augustViewStyleId = `august-view-style-${viewName}`
+        let styleElement = rootNode?.getElementById?.(augustViewStyleId)
+        if (!styleElement) {
+            styleElement = document.createElement("style")
+            styleElement.id = augustViewStyleId
+            styleElement.innerHTML = this.css.replace(/\[view\]/g, `[${viewName}]`)
+            rootNode?.append?.(styleElement)
+        }
+        this.styleElement = styleElement
+
+        return container
     }
 
     static binders: ViewBinderDefinition[] = []
@@ -48,122 +89,68 @@ export class View extends Model {
     static addBinder(pattern: RegExp, callback: ViewBinderCallback) {
         this.binders.push({ pattern, callback })
     }
+
+    static registerWebComponent(options: ViewRegisterWebComponentOptions) {
+        window.customElements.define(
+            options.tagName,
+            class extends HTMLElement {
+                viewInstance: View
+                augustViewConnecting: boolean
+                options: ViewRegisterWebComponentOptions
+
+                connectedCallback() {
+                    if (!this.augustViewConnecting) {
+                        this.augustViewConnecting = true
+                        this.options = options
+                        options.getView().then((view: typeof View) => {
+                            let viewInstance = (this.viewInstance = new view())
+                            let container: HTMLElement | ShadowRoot = this
+                            if (options.shadow) {
+                                this.attachShadow({ mode: "open" })
+                                container = this.shadowRoot
+                            }
+                            viewInstance.render(container)
+                            if (options.propertyMap) {
+                                Object.keys(options.propertyMap).forEach((property) => {
+                                    let path = options.propertyMap[property]
+                                    let value = this[property] ?? this.getAttribute(property)
+                                    Object.defineProperty(this, property, {
+                                        get: () => value,
+                                        set: (_value) => {
+                                            value = _value
+                                            viewInstance.set(path, value)
+                                        },
+                                    })
+                                    viewInstance.set(path, value)
+                                    viewInstance.watch(path, (_value) => (value = _value))
+                                })
+                            }
+                        })
+                    }
+                }
+
+                disconnectedCallback() {
+                    this.viewInstance?.reset()
+                }
+
+                attributeChangedCallback(name, _oldValue, newValue) {
+                    let path
+                    if (this.viewInstance && (path = this.options.propertyMap[name])) {
+                        this.viewInstance.set(path, newValue)
+                    }
+                }
+            }
+        )
+    }
 }
 
-View.addBinder(
-    /\[class\.(.*)\]/gm,
-    (view: View, el: Element, attributeMatchArray: RegExpMatchArray, attributeValue: string) => {
-        let className = attributeMatchArray[1]
-        let unwatch = view.watch(attributeValue, (value) => {
-            if (value) {
-                el.classList.add(className)
-            } else {
-                el.classList.remove(className)
-            }
-        })
-        return () => unwatch()
-    }
-)
-
-View.addBinder(
-    /\[style\.(.*)\]/gm,
-    (view: View, el: HTMLElement, attributeMatchArray: RegExpMatchArray, attributeValue: string) => {
-        let stylePropertyName = attributeMatchArray[1]
-        let unwatch = view.watch(attributeValue, (value) => {
-            if (value && value != el.style[stylePropertyName]) {
-                el.style[stylePropertyName] = value
-            } else {
-                delete el.style[stylePropertyName]
-            }
-        })
-        return () => unwatch()
-    }
-)
-
-View.addBinder(
-    /\[attr\.(.*)\]/gm,
-    (view: View, el: Element, attributeMatchArray: RegExpMatchArray, attributeValue: string) => {
-        let attributeName = attributeMatchArray[1]
-        let unwatch = view.watch(attributeValue, (value) => {
-            if (value) {
-                el.setAttribute(attributeName, value)
-            } else {
-                el.removeAttribute(attributeName)
-            }
-        })
-        return () => unwatch()
-    }
-)
-
-View.addBinder(
-    /\[prop\.(.*)\]/gm,
-    (view: View, el: Element, attributeMatchArray: RegExpMatchArray, attributeValue: string) => {
-        let propertyName = _.camelCase(attributeMatchArray[1])
-        let unwatch = view.watch(attributeValue, (value) => {
-            if (value != el[propertyName]) {
-                el[propertyName] = value
-            }
-        })
-        return () => unwatch()
-    }
-)
-
-View.addBinder(
-    /\(event\.(.*)\)/gm,
-    (view: View, el: Element, attributeMatchArray: RegExpMatchArray, attributeValue: string) => {
-        let eventName = attributeMatchArray[1]
-
-        const listener = (event: Event): void => {
-            view.set(attributeValue, event)
-        }
-        el.addEventListener(eventName, listener)
-
-        return () => el.removeEventListener(eventName, listener)
-    }
-)
-
-View.addBinder(
-    /\(element\)/gm,
-    (view: View, el: Element, attributeMatchArray: RegExpMatchArray, attributeValue: string) => {
-        view.set(attributeValue, el)
-        return () => {}
-    }
-)
-
-View.addBinder(
-    /\[component\]/gm,
-    (view: View, el: Element, attributeMatchArray: RegExpMatchArray, attributeValue: string) => {
-        emptyElement(el)
-        let unwatch = view.watch(attributeValue, (child: View) => {
-            emptyElement(el)
-            let elements = child.render()
-            elements.forEach((elm) => el.append(elm))
-        })
-        return () => unwatch()
-    }
-)
-
-View.addBinder(
-    /\[components\]/gm,
-    (view: View, el: Element, attributeMatchArray: RegExpMatchArray, attributeValue: string) => {
-        emptyElement(el)
-        let previousChildren = {}
-        let unwatch = view.watch(attributeValue, (children: View[]) => {
-            let currentChildren = {}
-            children.forEach((child) => {
-                let elements = child.render()
-                elements.forEach((elm) => el.append(elm))
-                delete previousChildren[child.id]
-                currentChildren[child.id] = child
-            })
-            Object.keys(previousChildren).forEach((key) => {
-                let previousChild = previousChildren[key]
-                if (previousChild) {
-                    previousChild.elements.forEach((elm) => el.removeChild(elm))
-                }
-            })
-            previousChildren = currentChildren
-        })
-        return () => unwatch()
-    }
-)
+View.addBinder(AttributeBinder.test, AttributeBinder.callback)
+View.addBinder(ClassBinder.test, ClassBinder.callback)
+View.addBinder(ComponentBinder.test, ComponentBinder.callback)
+View.addBinder(ComponentsBinder.test, ComponentsBinder.callback)
+View.addBinder(ElementBinder.test, ElementBinder.callback)
+View.addBinder(EventBinder.test, EventBinder.callback)
+View.addBinder(PropertyBinder.test, PropertyBinder.callback)
+View.addBinder(StyleBinder.test, StyleBinder.callback)
+View.addBinder(StyleFromDynamicExpression.test, StyleFromDynamicExpression.callback)
+View.addBinder(StyleFromStaticExpression.test, StyleFromStaticExpression.callback)
