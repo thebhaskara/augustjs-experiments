@@ -1,0 +1,47 @@
+:host {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+        "header header header"
+        "left-sidebar content right-sidebar"
+        "footer footer footer";
+
+    gap: var(--gap);
+}
+:host(.full-left-sidebar) {
+    grid-template-areas:
+        "left-sidebar header header"
+        "left-sidebar content right-sidebar"
+        "left-sidebar footer footer";
+}
+:host(.full-right-sidebar) {
+    grid-template-areas:
+        "header header right-sidebar"
+        "left-sidebar content right-sidebar"
+        "footer footer right-sidebar";
+}
+:host(.full-sidebar) {
+    grid-template-areas:
+        "left-sidebar header right-sidebar"
+        "left-sidebar content right-sidebar"
+        "left-sidebar footer right-sidebar";
+}
+
+::slotted([slot="header"]) {
+    grid-area: header;
+}
+::slotted([slot="footer"]) {
+    grid-area: footer;
+}
+::slotted([slot="content"]) {
+    grid-area: content;
+}
+::slotted([slot="left-sidebar"]) {
+    grid-area: left-sidebar;
+}
+::slotted([slot="right-sidebar"]) {
+    grid-area: right-sidebar;
+}
