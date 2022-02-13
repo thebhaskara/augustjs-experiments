@@ -91,35 +91,3 @@ View.registerWebComponent({
     propertyMap: { title: "title" },
 })
 ```
-
-## What can it do...
-
-two way binding
-[(ngModel)]="hero.name"
-
-one way binding
-controller -> dom
-[class.selected]="hero === selectedHero"
-[hero]="selectedHero"
-
-one way binding
-controller -> dom
-+DOM tree is altered
-*ngFor="let hero of heroes"
-*ngIf="selectedHero
-
-one way binding
-dom -> controller
-(click)="onSelect(hero)"
-
-{{selectedHero.name | uppercase}}
-
-<h2>My Heroes</h2>
-
-<ul class="heroes" [(ngModel)]="hero.name">
-  <li *ngfor="let hero of heroes" [class.selected]="hero === selectedHero" (click)="onSelect(hero)">
-    <span class="badge" [class.asdf]="hero === selectedHero">{{hero.id}}</span> {{hero.name}}
-  </li>
-</ul>
-
-<app-hero-detail [hero]="selectedHero"></app-hero-detail>
