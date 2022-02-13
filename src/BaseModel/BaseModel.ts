@@ -1,4 +1,5 @@
-import _ from "lodash"
+import get from "lodash/get"
+import set from "lodash/set"
 import { createId } from "../Helpers/createId"
 
 type BaseModelWatchCallback = (value: any) => void
@@ -55,7 +56,7 @@ export class BaseModel {
         if (model && restOfThePath) {
             return model.get(restOfThePath)
         } else {
-            return _.get(this._data, path)
+            return get(this._data, path)
         }
     }
 
@@ -65,7 +66,7 @@ export class BaseModel {
             model.set(restOfThePath, value)
         } else {
             this._modelByPath.set(firstPath, value instanceof BaseModel ? value : null)
-            _.set(this._data, path, value)
+            set(this._data, path, value)
             this.trigger(path)
         }
     }
