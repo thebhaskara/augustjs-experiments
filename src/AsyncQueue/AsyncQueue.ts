@@ -1,5 +1,3 @@
-import { resolve } from "../../webpack.config"
-
 interface AsyncQueueOptions {
     parallelTasksNumber: number
 }
